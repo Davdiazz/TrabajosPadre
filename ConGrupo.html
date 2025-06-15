@@ -1,0 +1,251 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Envío de Ausencias a Grupo WhatsApp</title>
+    <script src="https://cdn.jsdelivr.net/npm/xlsx/dist/xlsx.full.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 20px;
+            padding: 0;
+            background-color: #f4f4f9;
+        }
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 0 10px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #333;
+            text-align: center;
+        }
+        .input-group {
+            margin-bottom: 15px;
+        }
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+        }
+        input, select {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            box-sizing: border-box;
+        }
+        button {
+            background-color: #25D366;
+            color: white;
+            border: none;
+            padding: 10px 15px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 16px;
+            margin-top: 10px;
+        }
+        button:hover {
+            background-color: #128C7E;
+        }
+        #student-list {
+            margin-top: 20px;
+            max-height: 300px;
+            overflow-y: auto;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            padding: 10px;
+        }
+        .student-item {
+            padding: 8px;
+            border-bottom: 1px solid #eee;
+        }
+        .student-item:last-child {
+            border-bottom: none;
+        }
+        #whatsapp-container {
+            margin-top: 20px;
+            display: none;
+        }
+        #whatsapp-message {
+            background-color: #f8f8f8;
+            padding: 15px;
+            border-radius: 5px;
+            margin-bottom: 15px;
+            white-space: pre-wrap;
+        }
+        .instructions {
+            background-color: #FFF8E1;
+            padding: 15px;
+            border-radius: 4px;
+            margin-top: 20px;
+            border-left: 4px solid #FFC107;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Envío de Ausencias al Grupo de WhatsApp</h1>
+        
+        <div class="input-group">
+            <label for="archivo">Archivo Excel:</label>
+            <input type="file" id="archivo" accept=".xlsx,.xls" />
+        </div>
+        
+        <div class="input-group">
+            <label for="curso">Curso:</label>
+            <select id="curso"></select>
+        </div>
+
+        <div class="input-group">
+            <label for="grupo-whatsapp">URL del Grupo WhatsApp:</label>
+            <input type="text" id="grupo-whatsapp" placeholder="https://chat.whatsapp.com/..." />
+        </div>
+        
+        <button id="generar">Generar Mensaje para el Grupo</button>
+        
+        <div id="student-list"></div>
+        
+        <div id="whatsapp-container">
+            <h3>Mensaje para el grupo:</h3>
+            <div id="whatsapp-message"></div>
+            <button id="copiar-mensaje">Copiar Mensaje</button>
+            <button id="abrir-grupo">Abrir Grupo de WhatsApp</button>
+            
+            <div class="instructions">
+                <h4>Instrucciones para enviar:</h4>
+                <ol>
+                    <li>Haz clic en "Copiar Mensaje"</li>
+                    <li>Haz clic en "Abrir Grupo de WhatsApp"</li>
+                    <li>Pega el mensaje (Ctrl+V) en el grupo</li>
+                    <li>Envía el mensaje</li>
+                </ol>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let workbook;
+        let estudiantesAusentes = [];
+
+        document.getElementById("archivo").addEventListener("change", (event) => {
+            const file = event.target.files[0];
+            const reader = new FileReader();
+
+            reader.onload = (e) => {
+                const data = new Uint8Array(e.target.result);
+                workbook = XLSX.read(data, { type: "array" });
+
+                const cursoSelect = document.getElementById("curso");
+                cursoSelect.innerHTML = "";
+                workbook.SheetNames.forEach((sheetName) => {
+                    const option = document.createElement("option");
+                    option.value = sheetName;
+                    option.textContent = sheetName;
+                    cursoSelect.appendChild(option);
+                });
+            };
+
+            reader.readAsArrayBuffer(file);
+        });
+
+        function obtenerFechaActual() {
+            const fechaActual = new Date();
+            const dia = String(fechaActual.getDate()).padStart(2, '0');
+            const mes = String(fechaActual.getMonth() + 1).padStart(2, '0');
+            const anio = fechaActual.getFullYear();
+            return `${dia}/${mes}/${anio}`;
+        }
+
+        function generarMensajeGrupo() {
+            if (!workbook) {
+                Swal.fire("Error", "Primero cargue un archivo Excel.", "error");
+                return;
+            }
+
+            const curso = document.getElementById("curso").value;
+            const fechaHoy = obtenerFechaActual();
+            const grupoWhatsapp = document.getElementById("grupo-whatsapp").value.trim();
+
+            if (!curso) {
+                Swal.fire("Error", "Seleccione un curso.", "error");
+                return;
+            }
+
+            if (!grupoWhatsapp) {
+                Swal.fire("Error", "Ingrese la URL del grupo de WhatsApp.", "error");
+                return;
+            }
+
+            const sheet = workbook.Sheets[curso];
+            const data = XLSX.utils.sheet_to_json(sheet, { header: 1 });
+
+            estudiantesAusentes = [];
+
+            data.slice(2).forEach((fila) => {
+                const nombre = fila[2] ? fila[2].toString().trim() : "";
+                const asistencia = fila[new Date().getDate() + 3] ? fila[new Date().getDate() + 3].toString().trim() : "";
+
+                if (nombre && asistencia.toUpperCase() === "F") {
+                    estudiantesAusentes.push(nombre);
+                }
+            });
+
+            if (estudiantesAusentes.length === 0) {
+                Swal.fire("Información", "No hay estudiantes que faltaron el día de hoy.", "info");
+                return;
+            }
+
+            // Mostrar lista de estudiantes
+            const lista = document.getElementById("student-list");
+            lista.innerHTML = "<h3>Estudiantes ausentes:</h3>";
+            
+            estudiantesAusentes.forEach(estudiante => {
+                const item = document.createElement("div");
+                item.className = "student-item";
+                item.textContent = estudiante;
+                lista.appendChild(item);
+            });
+
+            // Generar mensaje consolidado
+            const mensajeGrupo = `📢 *Reporte de Ausencias - ${curso} - ${fechaHoy}*\n\n` +
+                                 `Los siguientes estudiantes no asistieron hoy:\n\n` +
+                                 `➡ ${estudiantesAusentes.join("\n➡ ")}\n\n` +
+                                 `Por favor presentar excusas a coordinación.\n` +
+                                 `Gracias por su atención.`;
+
+            // Mostrar el mensaje
+            const whatsappContainer = document.getElementById("whatsapp-container");
+            const whatsappMessage = document.getElementById("whatsapp-message");
+            
+            whatsappMessage.textContent = mensajeGrupo;
+            whatsappContainer.style.display = "block";
+            
+            // Configurar botones
+            document.getElementById("copiar-mensaje").onclick = () => {
+                navigator.clipboard.writeText(mensajeGrupo)
+                    .then(() => Swal.fire("Copiado", "El mensaje se ha copiado al portapapeles.", "success"))
+                    .catch(() => Swal.fire("Error", "No se pudo copiar el mensaje.", "error"));
+            };
+            
+            document.getElementById("abrir-grupo").onclick = () => {
+                // Verificar si la URL comienza con http:// o https://
+                let url = grupoWhatsapp;
+                if (!url.startsWith("http://") && !url.startsWith("https://")) {
+                    url = "https://" + url;
+                }
+                window.open(url, "_blank");
+            };
+            
+            Swal.fire("Listo", "Mensaje para el grupo generado correctamente.", "success");
+        }
+
+        document.getElementById("generar").addEventListener("click", generarMensajeGrupo);
+    </script>
+</body>
+</html>

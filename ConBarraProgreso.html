@@ -1,0 +1,268 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Automatización WhatsApp</title>
+    <script src="https://cdn.jsdelivr.net/npm/xlsx/dist/xlsx.full.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 0;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            flex-direction: column;
+            min-height: 100vh;
+            background-color: #f4f4f9;
+        }
+        h1 {
+            color: #333;
+            margin-bottom: 20px;
+            text-align: center;
+        }
+        label, input, select, button {
+            font-size: 1rem;
+            margin-bottom: 15px;
+        }
+        input, select {
+            padding: 10px;
+            border: 1px solid #ccc;
+            border-radius: 5px;
+            width: 100%;
+            max-width: 300px;
+            box-sizing: border-box;
+        }
+        button {
+            padding: 10px 20px;
+            background-color: #4caf50;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+        }
+        button:hover {
+            background-color: #45a049;
+        }
+        #enlaces {
+            margin-top: 20px;
+            max-width: 600px;
+            text-align: center;
+        }
+        a {
+            display: block;
+            margin: 10px 0;
+            color: #007bff;
+            text-decoration: none;
+        }
+        a:hover {
+            text-decoration: underline;
+        }
+        a:visited {
+            color: #9164a7;
+            text-decoration: line-through;
+        }
+        #progress-container {
+            width: 100%;
+            max-width: 300px;
+            margin: 20px 0;
+            display: none;
+        }
+        #progress-bar {
+            width: 0%;
+            height: 20px;
+            background-color: #4CAF50;
+            text-align: center;
+            line-height: 20px;
+            color: white;
+            border-radius: 5px;
+        }
+        #status {
+            margin-top: 10px;
+            font-weight: bold;
+        }
+    </style>
+</head>
+<body>
+    <h1>Automatización de Mensajes de WhatsApp</h1>
+
+    <input type="file" id="archivo" accept=".xlsx" />
+    <br>
+
+    <label for="curso">Seleccione el curso:</label>
+    <select id="curso"></select>
+    <br>
+
+    <button id="generar">Generar y Enviar Mensajes</button>
+
+    <div id="progress-container">
+        <div id="progress-bar">0%</div>
+        <div id="status">Preparando envío...</div>
+    </div>
+
+    <div id="enlaces"></div>
+
+    <script>
+        let workbook;
+        let mensajesPorNumero = {};
+
+        document.getElementById("archivo").addEventListener("change", (event) => {
+            const file = event.target.files[0];
+            const reader = new FileReader();
+
+            reader.onload = (e) => {
+                const data = new Uint8Array(e.target.result);
+                workbook = XLSX.read(data, { type: "array" });
+
+                const cursoSelect = document.getElementById("curso");
+                cursoSelect.innerHTML = "";
+                workbook.SheetNames.forEach((sheetName) => {
+                    const option = document.createElement("option");
+                    option.value = sheetName;
+                    option.textContent = sheetName;
+                    cursoSelect.appendChild(option);
+                });
+            };
+
+            reader.readAsArrayBuffer(file);
+        });
+
+        function obtenerFechaActual() {
+            const fechaActual = new Date();
+            const dia = String(fechaActual.getDate()).padStart(2, '0');
+            const mes = String(fechaActual.getMonth() + 1).padStart(2, '0');
+            const anio = fechaActual.getFullYear();
+
+            return `${dia}/${mes}/${anio}`;
+        }
+
+        function formatearTelefono(numero) {
+            numero = numero.replace(/\s/g, "").replace(/[^0-9]/g, "");
+            if (!numero.startsWith("57")) {
+                numero = "57" + numero;
+            }
+            return numero; // Eliminamos el "+" para usar con WhatsApp Web
+        }
+
+        function prepararMensajes() {
+            if (!workbook) {
+                Swal.fire("Error", "Primero cargue un archivo Excel.", "error");
+                return false;
+            }
+
+            const curso = document.getElementById("curso").value;
+            const fechaHoy = obtenerFechaActual();
+
+            if (!curso) {
+                Swal.fire("Error", "Seleccione un curso.", "error");
+                return false;
+            }
+
+            const sheet = workbook.Sheets[curso];
+            const data = XLSX.utils.sheet_to_json(sheet, { header: 1 });
+
+            mensajesPorNumero = {};
+
+            data.slice(2).forEach((fila) => {
+                const nombre = fila[2] ? fila[2].toString().trim() : "";
+                let telefono = fila[3] ? fila[3].toString().trim() : "";
+                const asistencia = fila[new Date().getDate() + 3] ? fila[new Date().getDate() + 3].toString().trim() : "";
+
+                if (nombre && telefono && asistencia.toUpperCase() === "F") {
+                    telefono = formatearTelefono(telefono);
+
+                    if (!mensajesPorNumero[telefono]) {
+                        mensajesPorNumero[telefono] = [];
+                    }
+
+                    if (!mensajesPorNumero[telefono].includes(nombre)) {
+                        mensajesPorNumero[telefono].push(nombre);
+                    }
+                }
+            });
+
+            if (Object.keys(mensajesPorNumero).length === 0) {
+                Swal.fire("Información", "No hay estudiantes que faltaron el día de hoy.", "info");
+                return false;
+            }
+
+            return true;
+        }
+
+        async function enviarMensajes() {
+            const progressContainer = document.getElementById("progress-container");
+            const progressBar = document.getElementById("progress-bar");
+            const statusElement = document.getElementById("status");
+            const enlacesDiv = document.getElementById("enlaces");
+            
+            progressContainer.style.display = "block";
+            enlacesDiv.innerHTML = "<h2>Progreso de envío:</h2>";
+
+            const numeros = Object.keys(mensajesPorNumero);
+            const total = numeros.length;
+            let enviados = 0;
+            const fechaHoy = obtenerFechaActual();
+
+            for (const telefono of numeros) {
+                const nombres = mensajesPorNumero[telefono];
+                const mensaje = `Cordial saludo, señor Acudiente. se le informa que su acudido (a) ${nombres.join(", ")} no asistió a clases el día de hoy (${fechaHoy}). Por favor presentar la excusa correspondiente a coordinación. \n\nMil gracias. \nColegio Unión Europea.`;
+                
+                // Actualizar estado
+                statusElement.textContent = `Enviando a ${telefono}...`;
+                
+                // Crear enlace de WhatsApp Web
+                const whatsappLink = `https://web.whatsapp.com/send?phone=${telefono}&text=${encodeURIComponent(mensaje)}`;
+                
+                // Mostrar enlace en la página (para referencia)
+                const enlace = document.createElement("div");
+                enlace.innerHTML = `Enviando a <strong>${nombres.join(", ")}</strong> (${telefono})...`;
+                enlacesDiv.appendChild(enlace);
+                
+                try {
+                    // Abrir nueva pestaña con el enlace de WhatsApp Web
+                    window.open(whatsappLink, '_blank');
+                    
+                    // Esperar 10 segundos para dar tiempo al envío manual
+                    await new Promise(resolve => setTimeout(resolve, 10000));
+                    
+                    enviados++;
+                    const porcentaje = Math.round((enviados / total) * 100);
+                    progressBar.style.width = `${porcentaje}%`;
+                    progressBar.textContent = `${porcentaje}%`;
+                    
+                    // Marcar como enviado
+                    enlace.innerHTML = `✅ Enviado a <strong>${nombres.join(", ")}</strong> (${telefono})`;
+                } catch (error) {
+                    console.error(`Error al enviar a ${telefono}:`, error);
+                    enlace.innerHTML = `❌ Error al enviar a <strong>${nombres.join(", ")}</strong> (${telefono})`;
+                }
+            }
+
+            statusElement.textContent = "Envío completado!";
+            Swal.fire("Éxito", `Se han enviado ${enviados} de ${total} mensajes.`, "success");
+        }
+
+        document.getElementById("generar").addEventListener("click", async () => {
+            if (prepararMensajes()) {
+                // Pedir confirmación antes de enviar
+                const { isConfirmed } = await Swal.fire({
+                    title: '¿Está seguro?',
+                    text: `Se enviarán ${Object.keys(mensajesPorNumero).length} mensajes de WhatsApp. Asegúrese de tener WhatsApp Web abierto y su sesión iniciada.`,
+                    icon: 'warning',
+                    showCancelButton: true,
+                    confirmButtonColor: '#3085d6',
+                    cancelButtonColor: '#d33',
+                    confirmButtonText: 'Sí, enviar mensajes',
+                    cancelButtonText: 'Cancelar'
+                });
+
+                if (isConfirmed) {
+                    enviarMensajes();
+                }
+            }
+        });
+    </script>
+</body>
+</html>
